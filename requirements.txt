@@ -1,0 +1,35 @@
+# Ophiuchus — python-side requirements.
+# The bun/electrobun side needs nothing beyond `bun install` (see package.json).
+
+# Core: the marker-driver kernel (src/kernelDriver.py). Without these the
+# default python console cannot start.
+ipython
+jedi
+
+# Shell escapes in a real terminal (src/kernelDriver.py system()): ! commands
+# see a tty — live pip/curl/tqdm progress. Optional; without it ! output
+# falls back to piped streaming.
+pywinpty; sys_platform == "win32"
+
+# Inline plots: matplotlib figures render as images in the console via the
+# inline backend (ipykernel's, standalone). Optional; without it plt.show()
+# warns that Agg cannot draw.
+matplotlib-inline
+
+# Session snapshots (§save / §load): the kernel namespace is dumped and
+# restored with dill.dump_session/load_session. Optional; without it the
+# snapshot cell fails with ModuleNotFoundError (fix: pip install dill).
+dill
+
+# Multi-language: the jupyter broker (src/kernelBroker.py) and kernelspec
+# discovery (src/kernelRouter.js). Optional; without them only the marker
+# driver's python is offered. Any installed kernelspec then becomes a §lang
+# (e.g. `deno jupyter --install`, julia's IJulia, gophernotes).
+jupyter_client
+ipykernel
+
+# C (§lang c) is not a python package: it needs a TinyCC binary — set OPHI_TCC,
+# put tcc on PATH, or install to %LOCALAPPDATA%/Programs/tcc/tcc/tcc.exe
+# (win64 zip: https://download.savannah.gnu.org/releases/tinycc/).
+# src/kernelC.py runs each cell via `tcc -run`; the language is only offered
+# when a tcc binary is actually found.

@@ -1,0 +1,12 @@
+node_modules/
+build/
+dist/
+artifacts/
+*.tsbuildinfo
+
+# Secrets — provider keys live here (Bun auto-loads it), never in the tree.
+.env
+.env.*
+
+# Tooling scratch
+.remember/
