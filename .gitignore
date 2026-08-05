@@ -10,3 +10,7 @@ artifacts/
 
 # Tooling scratch
 .remember/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/

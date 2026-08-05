@@ -1,0 +1,19 @@
+[package]
+name = "ophiuchus-shell"
+version = "0.1.0"
+edition = "2021"
+
+# The Tauri SHELL — window + capability config only. All application logic
+# lives in the bun sidecar (see docs/tauri-migration-plan.md); this crate is
+# deliberately a few lines and should stay that way.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+
+[profile.release]
+strip = true
+lto = true
