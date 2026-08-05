@@ -4,7 +4,7 @@
   "version": "0.1.0-beta.1",
   "identifier": "com.gnosteq.ophiuchus",
   "build": {
-    "frontendDist": "../dist-spike"
+    "frontendDist": "../dist-view"
   },
   "app": {
     "windows": [
@@ -18,7 +18,9 @@
         "decorations": false,
         "shadow": true,
         "resizable": true,
-        "maximizable": true
+        "maximizable": true,
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": false
       }
     ],
     "security": {
@@ -27,6 +29,11 @@
   },
   "bundle": {
     "active": false,
-    "icon": ["icons/icon.ico"]
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/ophi-core"
+    ]
   }
 }

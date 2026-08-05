@@ -1,8 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Ophiuchus main window: frameless window controls + the bun sidecar pipe. Shell access is scoped — the webview can spawn bun and nothing else.",
-  "windows": ["main"],
+  "description": "Ophiuchus main window: frameless window controls + the bun sidecar pipe. Shell access is scoped \u2014 the webview can spawn bun and nothing else.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -16,8 +18,24 @@
     "shell:allow-stdin-write",
     "shell:allow-kill",
     {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/ophi-core",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
+    {
       "identifier": "shell:allow-execute",
-      "allow": [{ "name": "bun", "cmd": "bun", "args": true }]
+      "allow": [
+        {
+          "name": "binaries/ophi-core",
+          "sidecar": true,
+          "args": true
+        }
+      ]
     }
   ]
 }

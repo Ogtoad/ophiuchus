@@ -1,7 +1,12 @@
-// Workspace view entry: RPC bridge + mounts both panels.
+// Workspace view entry (Tauri shell): RPC bridge + mounts both panels.
 // The familiar's speech routes to the familiar panel; its CELLS route to the
 // console, which is the one shared session view.
-import Electrobun, { Electroview } from "electrobun/view";
+//
+// The shim exposes the same rpc surface the panels have always spoken; the
+// window chrome is native now — the drag strip is a data-tauri-drag-region
+// (drag + dblclick-maximize handled by the OS path), and a resize grip fires
+// ONE native startResizeDragging instead of streaming deltas.
+import { createTauriShim } from "./tauriShim.js";
 import { initConsole } from "./consolePanel.js";
 import { initFamiliar } from "./familiarPanel.js";
 import { mountWorkspace } from "./workspaceBoxes.js";
@@ -9,26 +14,21 @@ import { mountWorkspace } from "./workspaceBoxes.js";
 let fam: any = null;
 let con: any = null;
 
-const rpc = Electroview.defineRPC({
-  maxRequestTime: 300000,
-  handlers: {
-    requests: {},
-    messages: {
-      // The running human cell's output, line by line, while it runs.
-      cellOutput: (o: any) => con && con.liveOutput(o),
-      familiarDelta: ({ text }: { text: string }) => fam && fam.addChatDelta(text),
-      familiarDone: () => { if (fam) fam.endReply(); },
-      // Machinery talk belongs in the console, not the conversation.
-      familiarStatus: ({ text }: { text: string }) => con && con.note(text),
-      // The familiar's cells go to THE console — same session, same In[n]
-      // numbering as the human's, because it is the same kernel. The console
-      // shows only executed cells; the working pulse lives in the chat panel.
-      familiarConsoleStart: () => {},
-      familiarConsoleResult: ({ code, result }: { code: string; result: any }) => con && con.famResult(code, result),
-    },
+const electrobun = createTauriShim({
+  messages: {
+    // The running human cell's output, line by line, while it runs.
+    cellOutput: (o: any) => con && con.liveOutput(o),
+    familiarDelta: ({ text }: { text: string }) => fam && fam.addChatDelta(text),
+    familiarDone: () => { if (fam) fam.endReply(); },
+    // Machinery talk belongs in the console, not the conversation.
+    familiarStatus: ({ text }: { text: string }) => con && con.note(text),
+    // The familiar's cells go to THE console — same session, same In[n]
+    // numbering as the human's, because it is the same kernel. The console
+    // shows only executed cells; the working pulse lives in the chat panel.
+    familiarConsoleStart: () => {},
+    familiarConsoleResult: ({ code, result }: { code: string; result: any }) => con && con.famResult(code, result),
   },
 });
-const electrobun = new Electrobun.Electroview({ rpc });
 
 // Hoist the two panels into a resizable/draggable box tree, then wire them.
 // Default: console left, familiar right (drag a bar to any edge to re-split).
@@ -49,73 +49,18 @@ fam = initFamiliar(electrobun);
 con = initConsole(electrobun, fam);
 fam.onStateChange(con.refreshPlaceholder);
 
-// The window chrome, such as it is. There is no OS frame to move or size the
-// window by — and the native one can't be used, because Windows paints its
-// sizing border as a bright 7px band across the top of an app that is meant to
-// be nothing but content. So both gestures live here, as invisible regions
-// feeding electrobun's portable window API: the same code on every platform.
-// ponytail: deltas are CSS px, 1:1 with window units at 100% display scaling.
-// Multiply by devicePixelRatio if a HiDPI screen makes the window lag the cursor.
-function onDrag(el: HTMLElement, send: (dx: number, dy: number) => void) {
-  let move: ((m: PointerEvent) => void) | null = null;
-  let up: (() => void) | null = null;
-  el.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    up?.();                              // a native loop can steal the release — never stack handlers
-    el.setPointerCapture(e.pointerId);   // keeps the gesture once it outruns the region
-    let x = e.screenX, y = e.screenY;
-    move = (m: PointerEvent) => {
-      if (!(m.buttons & 1)) return up?.();   // release happened while captured elsewhere
-      send(m.screenX - x, m.screenY - y);
-      x = m.screenX; y = m.screenY;
-    };
-    up = () => {
-      if (move) el.removeEventListener("pointermove", move);
-      if (up) el.removeEventListener("pointerup", up);
-      move = up = null;
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-  });
-}
-
-// The strip runs BOTH drag paths and lets the OS decide which one lives. The
-// press pokes windowDragStart — on Windows that posts the window into the OS's
-// own move loop (native drag, native edge snap, drag-to-top). If that loop
-// engages it captures the mouse, so the delta loop below never hears another
-// pointermove; on hosts with no native path (mac untested, linux equivalent
-// unknown) or if the native loop declines, the deltas drag the window instead.
-// No platform sniffing, no dead strip if either path breaks.
-// Double-press within 350ms is the maximize toggle every titlebar has; manual
-// detection because the native loop eats the events dblclick needs. The native
-// drag is deferred until the pointer actually MOVES (a few px): a stationary
-// press posted straight into the OS modal move loop captures the mouse, and
-// the second click of a double-click was being eaten by it.
+// Native window chrome: the strip drags (and dblclick-maximizes) through the
+// OS path Tauri injects for drag regions; the grips are one-shot native
+// resize gestures; × closes.
 const bar = document.getElementById("titlebar")!;
-onDrag(bar, (dx, dy) => electrobun.rpc.send.windowMove({ dx, dy }));
-let lastDown = 0;
-bar.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0) return;
-  const t = performance.now();
-  if (t - lastDown < 350) { lastDown = 0; electrobun.rpc.send.windowToggleMaximize({}); return; }
-  lastDown = t;
-  const x0 = e.screenX, y0 = e.screenY;
-  const arm = (m: PointerEvent) => {
-    if (!(m.buttons & 1)) return disarm();
-    if (Math.abs(m.screenX - x0) + Math.abs(m.screenY - y0) < 4) return;
-    disarm();
-    electrobun.rpc.send.windowDragStart({});
-  };
-  const disarm = () => { bar.removeEventListener("pointermove", arm); bar.removeEventListener("pointerup", disarm); };
-  bar.addEventListener("pointermove", arm);
-  bar.addEventListener("pointerup", disarm);
-});
+bar.setAttribute("data-tauri-drag-region", "");
 
-// Eight grips around the rim. Corners come last so they stack over the edges.
 for (const edge of ["n", "s", "e", "w", "nw", "ne", "sw", "se"]) {
   const el = document.body.appendChild(document.createElement("div"));
   el.className = "wedge " + edge;
-  onDrag(el, (dx, dy) => electrobun.rpc.send.windowResize({ edge, dx, dy }));
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button === 0) electrobun.rpc.send.windowResize({ edge, dx: 0, dy: 0 });
+  });
 }
 
 document.getElementById("closeBtn")!.addEventListener("click", () => electrobun.rpc.send.windowClose({}));
@@ -132,6 +77,25 @@ applyPad();
   get: () => pad,
   set: (v: number) => { pad = Math.min(5, Math.max(0, v)); localStorage.setItem(PAD_KEY, String(pad)); applyPad(); },
 };
+// Per-panel zoom: ctrl+wheel scales the panel under the cursor — hover IS the
+// selection. CSS zoom scales the px-sized fonts and the overlay/textarea pair
+// together, so the console's caret metrics survive. Persisted per panel.
+// (Webview-level zoom hotkeys are disabled in the shell so this handler is
+// the only ctrl+wheel behavior.)
+const ZOOM_KEY = "ophi.zoom.";
+for (const panel of Array.from(document.querySelectorAll<HTMLElement>(".panel"))) {
+  const saved = parseFloat(localStorage.getItem(ZOOM_KEY + panel.id) || "");
+  if (saved) (panel.style as any).zoom = String(saved);
+  panel.addEventListener("wheel", (e: WheelEvent) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const cur = parseFloat((panel.style as any).zoom || "1") || 1;
+    const next = Math.min(3, Math.max(0.5, cur * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+    (panel.style as any).zoom = next.toFixed(3);
+    localStorage.setItem(ZOOM_KEY + panel.id, next.toFixed(3));
+  }, { passive: false });
+}
+
 addEventListener("keydown", (e) => { if (e.key === "Alt") document.body.classList.add("alt-held"); });
 addEventListener("keyup", (e) => { if (e.key === "Alt") document.body.classList.remove("alt-held"); });
 addEventListener("blur", () => document.body.classList.remove("alt-held"));
@@ -149,15 +113,13 @@ electrobun.rpc.request.identity({})
   .then((t: { items: any[] }) => { if (t.items && t.items.length) fam.renderTranscript(t.items); })
   .catch(() => {});
 
-// Tell the bun side we mounted. `inputs` is the load-bearing assertion: the
-// whole app must expose exactly ONE text field (the console's) — a familiar
-// composer creeping back in would show up here as 2.
+// Tell the core we mounted. `inputs` is the load-bearing assertion: the
+// whole app must expose exactly ONE text field (the console's).
 electrobun.rpc.request.viewReady({
   boxes: document.querySelectorAll(".wbox").length,
   console: !!document.getElementById("output"),
   familiar: !!document.getElementById("fchat"),
   inputs: document.querySelectorAll("textarea, input[type=text]").length,
   layout: ws.restored ? "restored" : "default",
-  // The strip must be the topmost thing at the very top edge, or it drags nothing.
   drag: document.elementFromPoint(innerWidth / 2, 5)?.id || "NOT ON TOP",
-});
+}).catch(() => {});
