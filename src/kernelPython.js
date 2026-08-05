@@ -1,20 +1,27 @@
 // Python backend (marker-driver type): the IPython driver shipped as a
 // deflated+base64 argv (the §0 loader), zero external deps beyond IPython.
+//
+// The driver source is EMBEDDED at build time (import attribute type "text"),
+// so the compiled app needs no loose .py files beside it. The loader deletes
+// its own argv slot before exec, so a driver that reads sys.argv (the jupyter
+// broker's kernel name) sees its arguments where it expects them.
 
 import { deflateSync } from "node:zlib";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { createTransport } from "./kernelTransport.js";
+import driverSource from "./kernelDriver.py" with { type: "text" };
 
-const LOADER = "import base64,zlib,sys;exec(zlib.decompress(base64.b64decode(sys.argv[1])).decode())";
-const DRIVER_PATH = join(dirname(fileURLToPath(import.meta.url)), "kernelDriver.py");
+const LOADER = "import base64,zlib,sys;_c=zlib.decompress(base64.b64decode(sys.argv[1])).decode();del sys.argv[1];exec(_c)";
+
+// [python, -u, -c, loader, <deflated source>, ...args] — the uniform way every
+// embedded python driver is launched (kernelC and the jupyter broker reuse it).
+export function pyLoaderCmd(python, source, ...args) {
+  return [python, "-u", "-c", LOADER, deflateSync(Buffer.from(source, "utf8")).toString("base64"), ...args];
+}
 
 export function kernelPython(python = "python", outputByteLimit = 2_000_000) {
-  const driverB64 = deflateSync(Buffer.from(readFileSync(DRIVER_PATH, "utf8"), "utf8")).toString("base64");
   return createTransport({
     label: "python",
-    cmd: [python, "-u", "-c", LOADER, driverB64],
+    cmd: pyLoaderCmd(python, driverSource),
     config: { outputByteLimit },
     interruptSignal: true,   // posix: ctrl+c is a real SIGINT to the child
     // split: this driver can report a block's top-level statements (ast).

@@ -1,70 +1,20 @@
+// The electrobun SHELL: window, native frame shim, and the RPC bridge. All
+// application behavior lives in appCore.js — this file only hosts it. (The
+// Tauri migration replaces this file and nothing else on the bun side.)
+
 import { BrowserWindow, BrowserView } from "electrobun/bun";
 import { cc, dlopen, FFIType, ptr } from "bun:ffi";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { createRouter } from "./kernelRouter.js";
-import { createRoster } from "./familiarRoster.js";
+import { createApp } from "./appCore.js";
 
-// One kernel router, shared by the console and every familiar.
-const router = createRouter();
+// bun→view push: stream the familiar's turn into the panel as it happens.
+const toView = () => (mainWindow as any).webview.rpc.send;
 
-// Familiars live in the roster: named configs in ~/.ophiuchus.json (seeded from
-// OPHI_* env on first run), instances kept per name so §familiar toggling keeps
-// each conversation. No vendor preferred — config picks the provider.
-const roster = createRoster({ router, lang: "python" });
+const app = createApp({ push: (name: string, payload: unknown) => (toView() as any)[name](payload) });
 
-// The live familiar turn, so ctrl+c can abort it. A turn holds the kernel queue
-// for as long as it loops, which is what made a later cell look like a hang.
-let turn: AbortController | null = null;
-
-// The live OBSERVER turn: after each human cell the familiar gets one look at
-// what ran (witnessed into its history) and may react — the prompt teaches
-// that silence is the default. Superseded by the next cell or a real chat
-// send; provider failures are dropped silently (an unconfigured provider must
-// not turn every cell into an error note).
-let observerTurn: AbortController | null = null;
-function observeCell(code: string, result: unknown, lang: string) {
-  const send = toView();
-  observerTurn?.abort();
-  observerTurn = new AbortController();
-  const signal = observerTurn.signal;
-  const familiar = roster.active();
-  familiar.setLang(lang);
-  familiar.observeCell(code, result, {
-    signal,
-    onDelta: (t: string) => send.familiarDelta({ text: t }),
-    onConsoleStart: () => send.familiarConsoleStart({}),
-    onConsoleResult: (c: string, r: unknown) => send.familiarConsoleResult({ code: c, result: r }),
-    onCell: (c: string) => trace("familiar", c, () => router.run(lang, c, { preemptible: true })),
-  }).then(() => {
-    if (!signal.aborted) { send.familiarDone({}); roster.saveActive(); }
-  }).catch((e: Error) => console.log(`[observe] dropped: ${e.message}`));
-}
-
-// Session trace. Interactions used to leave no record at all, so "it went wrong
-// mid-flight" was undiagnosable after the fact — every cell, who ran it, how
-// long it took and how it ended now lands in the dev log.
-let seq = 0;
-async function trace<T>(who: string, code: string, work: () => Promise<T>): Promise<T> {
-  const n = ++seq;
-  const one = code.replace(/\s+/g, " ").slice(0, 70);
-  const t0 = Date.now();
-  console.log(`[cell ${n}] ${who} > ${one}`);
-  try {
-    const r = await work() as any;
-    const bits = [
-      r?.stdout ? `stdout ${JSON.stringify(String(r.stdout).slice(0, 60))}` : "",
-      r?.displays?.length ? `displays ${r.displays.length}` : "",
-      r?.stderr ? "stderr" : "",
-      r?.error ? `ERROR ${JSON.stringify(String(r.error).split("\n").filter(Boolean).pop()?.slice(0, 80))}` : "",
-    ].filter(Boolean).join(" · ") || "(no output)";
-    console.log(`[cell ${n}] ${who} < ${Date.now() - t0}ms ${bits}`);
-    return r;
-  } catch (e) {
-    console.log(`[cell ${n}] ${who} < ${Date.now() - t0}ms THREW ${(e as Error).message}`);
-    throw e;
-  }
-}
+// Kernels are children of this process; reap them however we exit.
+process.on("exit", app.shutdown);
 
 // Smaller than this and the two panels are below their own minimums anyway.
 const MIN_W = 480, MIN_H = 320;
@@ -77,119 +27,10 @@ const MIN_W = 480, MIN_H = 320;
 // Assigned after the window exists; null on other hosts (they keep the deltas).
 let nativeDrag: (() => void) | null = null;
 
-// bun→view push: stream the familiar's turn into the panel as it happens.
-const toView = () => (mainWindow as any).webview.rpc.send;
-
 const rpc = BrowserView.defineRPC({
   maxRequestTime: 300000,
   handlers: {
-    requests: {
-      // Typed by the human: runs now. Front of the queue, and it takes the
-      // kernel back from a familiar cell mid-flight rather than waiting for it.
-      // onOutput streams the running cell's lines into the console as they
-      // happen — the result at the end is the same lines, made authoritative.
-      runCell: async ({ code, lang }) => {
-        const r = await trace("human", code, () =>
-          router.run(lang, code, { front: true, preempt: true, onOutput: (o: unknown) => toView().cellOutput(o) }));
-        observeCell(code, r, lang || "python");   // fire-and-forget — the cell's result never waits on the familiar
-        return r;
-      },
-      complete: async ({ code, cursor, lang }) => router.complete(lang, code, cursor),
-      inspect: async ({ name, lang }) => router.inspect(lang, name),
-      languages: () => router.languages(),
-      // First-boot dependency probe: is python real (not the Windows Store
-      // alias), and which packages exist. find_spec, not import — fast, no side
-      // effects. The console turns this into install guidance.
-      kernelHealth: async () => {
-        const MODS = ["IPython", "jedi", "jupyter_client", "dill", "winpty", "matplotlib", "matplotlib_inline"];
-        const probe = `import json,sys,importlib.util as u;print(json.dumps({"python":sys.version.split()[0],"exe":sys.executable,"mods":{m:bool(u.find_spec(m)) for m in ${JSON.stringify(MODS)}}}))`;
-        try {
-          const p = Bun.spawn(["python", "-c", probe], { stdout: "pipe", stderr: "pipe" });
-          const out = await Promise.race([
-            new Response(p.stdout).text(),
-            new Promise<string>((r) => setTimeout(() => { try { p.kill(); } catch {} r(""); }, 8000)),
-          ]);
-          const code = await p.exited;
-          const line = (out.trim().split("\n").pop() || "");
-          if (code !== 0 || !line.startsWith("{")) return { ok: false };
-          return { ok: true, ...JSON.parse(line) };
-        } catch {
-          return { ok: false };
-        }
-      },
-      restartKernel: ({ lang }) => { router.restart(lang); return { ok: true }; },
-      interruptKernel: ({ lang }) => { router.interrupt(lang); return { ok: true }; },
-      sendToFamiliar: async ({ text, lang }) => {
-        const send = toView();
-        const L = lang || "python";
-        const familiar = roster.active();
-        familiar.setLang(L);
-        console.log(`[turn] start (${roster.activeName}): ${JSON.stringify(String(text).slice(0, 80))}`);
-        const turnT0 = Date.now();
-        // One turn at a time; ctrl+c aborts it through cancelFamiliar. A real
-        // question also supersedes any observer turn still mulling.
-        turn?.abort();
-        observerTurn?.abort(); observerTurn = null;
-        turn = new AbortController();
-        const signal = turn.signal;
-        await familiar.send(text, {
-          signal,
-          onDelta: (t: string) => send.familiarDelta({ text: t }),
-          onStatus: (s: string) => { console.log(`[turn] status: ${s}`); send.familiarStatus({ text: s }); },
-          // The chat panel pulses while the familiar works; the console shows
-          // each cell as it runs.
-          onConsoleStart: () => send.familiarConsoleStart({}),
-          onConsoleResult: (code: string, result: unknown) => send.familiarConsoleResult({ code, result }),
-          // Routed through trace so familiar cells appear in the same log as
-          // the human's — the interleaving is the thing worth seeing.
-          onCell: (code: string) => trace("familiar", code, () => router.run(L, code, { preemptible: true })),
-        });
-        send.familiarDone({});
-        console.log(`[turn] end after ${Date.now() - turnT0}ms`);
-        turn = null;
-        roster.saveActive();   // the conversation survives a restart
-        return { ok: true };
-      },
-      // ctrl+c: interrupt the kernel AND stop the familiar's loop. Interrupting
-      // only the cell would leave the turn free to queue the next one.
-      cancelFamiliar: () => {
-        const had = !!turn || !!observerTurn;
-        console.log(`[cancel] ctrl+c — familiar turn ${had ? "aborted" : "was idle"}`);
-        turn?.abort(); turn = null;
-        observerTurn?.abort(); observerTurn = null;
-        return { aborted: had };
-      },
-      clearFamiliar: () => { roster.active().clear(); roster.saveActive(); return { ok: true }; },
-      // The active familiar's conversation, for the chat panel to render on
-      // boot and after a §familiar switch.
-      transcript: () => ({ items: roster.transcript() }),
-      // Who the two speakers are. The transcript prompts read `$name>`, so the
-      // names are data, not markup.
-      identity: () => ({ user: roster.user, familiar: roster.activeName }),
-      // §set / §familiar — the roster is the config store (~/.ophiuchus.json).
-      config: () => ({ user: roster.user, active: roster.activeName, familiars: roster.list(), firstRun: roster.firstRun }),
-      setUser: ({ name }: { name: string }) => { roster.setUser(name); return { ok: true, user: roster.user }; },
-      // Switching or creating mid-turn aborts the turn: it belongs to the
-      // familiar that was speaking, not the one arriving.
-      familiarUse: ({ name }: { name: string }) => { const r = roster.use(name); if (r.ok) { turn?.abort(); turn = null; observerTurn?.abort(); observerTurn = null; } return r; },
-      familiarNew: ({ name }: { name: string }) => { const r = roster.create(name); if (r.ok) { turn?.abort(); turn = null; observerTurn?.abort(); observerTurn = null; } return r; },
-      familiarEdit: ({ name, key, value }: { name: string; key: string; value: string }) => roster.edit(name, key, value),
-      // §save / §load — conversation snapshot here; the console runs the
-      // dill dump/load cell against the returned path. Loading mid-turn
-      // aborts the turn: the conversation it belonged to is being replaced.
-      snapshots: () => ({ names: roster.snapshots() }),
-      snapshotSave: ({ name }: { name: string }) => roster.snapshotSave(name),
-      snapshotLoad: ({ name }: { name: string }) => { const r = roster.snapshotLoad(name); if (r.ok) { turn?.abort(); turn = null; observerTurn?.abort(); observerTurn = null; } return r; },
-      // §provider / §model — sugar over the active familiar's config.
-      providers: () => ({ ids: roster.providers(), list: roster.providerList(), active: roster.activeConfig() }),
-      models: () => roster.models(),
-      // Renderer reports it mounted — the only in-app signal that the boxed view
-      // wired up cleanly (WebView2 renderer console isn't on stdout).
-      viewReady: (info: { boxes: number; console: boolean; familiar: boolean; inputs: number; layout?: string; drag?: string }) => {
-        console.log(`view ready: ${info.boxes} boxes · console=${info.console} familiar=${info.familiar} · inputs=${info.inputs}${info.inputs === 1 ? " (single-input ok)" : " (EXPECTED 1)"} · layout=${info.layout} · drag=${info.drag}`);
-        return { ok: true };
-      },
-    },
+    requests: app.handlers as any,
     // The window carries no OS chrome, so moving and sizing it are the view's
     // job: its drag strip and edge grips report here. Fire-and-forget, so a
     // drag never waits on a round trip. On Windows the drag is handed to the
@@ -204,7 +45,7 @@ const rpc = BrowserView.defineRPC({
         const f = mainWindow.getFrame();
         mainWindow.setPosition(f.x + dx, f.y + dy);
       },
-      windowClose: () => mainWindow.close(),
+      windowClose: () => { app.shutdown(); mainWindow.close(); },
       // The maximize toggle every titlebar has, on the strip's double-click.
       windowToggleMaximize: () => {
         if (mainWindow.isMaximized()) mainWindow.unmaximize();
@@ -236,7 +77,6 @@ const mainWindow = new BrowserWindow({
   // grips around the rim, reporting through the window* messages above. On
   // Windows the wndproc shim below makes the OS treat this frameless window as
   // a normal app window (snap, Win+Arrow, shadow) without painting any frame.
-  // 16:9, up from 1200x780.
   titleBarStyle: "hidden",
   styleMask: { Titled: false, Borderless: true, FullSizeContentView: true, Closable: true, Miniaturizable: true, Resizable: true },
   frame: { width: 1560, height: 880, x: 100, y: 70 },
@@ -335,13 +175,13 @@ if (process.env.OPHI_SMOKE === "1") {
   (async () => {
     try {
       // Same traced path the UI uses, so the trace itself is exercised too.
-      const cell = await trace("human", "x = 6 * 7", () => router.run("python", "x = 6 * 7\nprint('kernel:', x)", { front: true, preempt: true }));
+      const cell = await app.trace("human", "x = 6 * 7", () => app.router.run("python", "x = 6 * 7\nprint('kernel:', x)", { front: true, preempt: true }));
       console.log("SMOKE kernel:", JSON.stringify((cell.stdout || "").trim()));
       let chat = "";
-      await roster.active().send("say hi", {
+      await app.roster.active().send("say hi", {
         onDelta: (t: string) => { chat += t; },
         onStatus: (s: string) => console.log(`[turn] status: ${s}`),
-        onCell: (code: string) => trace("familiar", code, () => router.run("python", code, { preemptible: true })),
+        onCell: (code: string) => app.trace("familiar", code, () => app.router.run("python", code, { preemptible: true })),
       });
       console.log("SMOKE familiar chat:", JSON.stringify(chat.trim()));
       console.log("SMOKE ok");

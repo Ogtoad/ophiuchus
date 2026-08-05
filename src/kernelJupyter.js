@@ -5,16 +5,14 @@
 //
 // Requires: pip install jupyter_client ipykernel (+ the kernelspec installed).
 
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { createTransport } from "./kernelTransport.js";
-
-const BROKER_PATH = join(dirname(fileURLToPath(import.meta.url)), "kernelBroker.py");
+import { pyLoaderCmd } from "./kernelPython.js";
+import brokerSource from "./kernelBroker.py" with { type: "text" };
 
 export function kernelJupyter(kernelName, python = "python") {
   return createTransport({
     label: "jupyter:" + kernelName,
-    cmd: [python, "-u", BROKER_PATH, kernelName],
+    cmd: pyLoaderCmd(python, brokerSource, kernelName),
     config: {},
     // Most kernels implement these; capability-probing per kernel is a later
     // refinement. checkComplete/interrupt/inspect degrade gracefully in the broker.

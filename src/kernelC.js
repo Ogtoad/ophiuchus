@@ -3,11 +3,10 @@
 // so §lang never offers a language that can't run.
 
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { createTransport } from "./kernelTransport.js";
-
-const DRIVER_PATH = join(dirname(fileURLToPath(import.meta.url)), "kernelC.py");
+import { pyLoaderCmd } from "./kernelPython.js";
+import cDriverSource from "./kernelC.py" with { type: "text" };
 
 export function tccAvailable(env = process.env) {
   if (env.OPHI_TCC && existsSync(env.OPHI_TCC)) return true;
@@ -18,7 +17,7 @@ export function tccAvailable(env = process.env) {
 export function kernelC(python = "python") {
   return createTransport({
     label: "c",
-    cmd: [python, "-u", DRIVER_PATH],
+    cmd: pyLoaderCmd(python, cDriverSource),
     config: {},
     // No split (a C cell is one program), no completion/inspection.
     capabilities: { complete: false, inspect: false, checkComplete: true, interrupt: true, richDisplay: false, split: false, state: "none" },

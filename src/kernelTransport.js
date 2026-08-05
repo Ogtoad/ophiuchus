@@ -250,6 +250,13 @@ export function createTransport(spec) {
     spawnProc();
   }
 
+  // App exit: kill the backend process and fail everything pending. Without
+  // this the kernel pythons outlive the app as orphans.
+  function shutdown() {
+    fail(new Error("kernel shut down"));
+    try { proc.kill(); } catch {}
+  }
+
   spawnProc();
-  return { run, split, complete, inspect, checkComplete, interrupt, restart, capabilities: spec.capabilities || {} };
+  return { run, split, complete, inspect, checkComplete, interrupt, restart, shutdown, capabilities: spec.capabilities || {} };
 }

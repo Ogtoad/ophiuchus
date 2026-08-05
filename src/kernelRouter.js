@@ -77,6 +77,9 @@ export function createRouter() {
     checkComplete: (langId, code) => get(langId).checkComplete(code),
     interrupt: (langId) => get(langId).interrupt(),
     restart: (langId) => { if (live.has(langId || "python")) live.get(langId || "python").restart(); },
+    // App exit: kill every live kernel process — they are children of this
+    // process and nothing else will reap them.
+    shutdown: () => { for (const k of live.values()) { try { k.shutdown(); } catch {} } live.clear(); },
   };
 }
 

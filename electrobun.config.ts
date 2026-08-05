@@ -19,10 +19,8 @@ export default {
 		copy: {
 			"src/workspace.html": "views/workspace/index.html",
 			"src/workspace.css": "views/workspace/index.css",
-			// Driver/broker/shim are read at runtime beside the bundled bun entry.
-			"src/kernelDriver.py": "bun/kernelDriver.py",
-			"src/kernelBroker.py": "bun/kernelBroker.py",
-			"src/kernelC.py": "bun/kernelC.py",
+			// The python drivers are EMBEDDED in the bundle (text imports);
+			// only the C shim is still read from disk at runtime (TinyCC).
 			"src/windowShim.c": "bun/windowShim.c",
 		},
 		mac: {
