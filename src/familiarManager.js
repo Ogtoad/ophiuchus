@@ -11,7 +11,7 @@ import { buildSystem } from "./familiarPrompt.js";
 // the human saw a pile of executed cells and no reply.
 const MAX_ITERS = 24;       // console loops before a turn is force-ended
 
-export function createFamiliar({ router, provider, lang = "python", name = "familiar", history: initial } = {}) {
+export function createFamiliar({ router, provider, name = "familiar", history: initial } = {}) {
   const history = Array.isArray(initial) ? initial : []; // {role, content} — user, assistant raw, console_history; restored across restarts by the roster
   // In[n]/Out[n] counter — a session that keeps counting is how the familiar
   // sees that the namespace persists rather than resetting each block.
@@ -50,7 +50,7 @@ export function createFamiliar({ router, provider, lang = "python", name = "fami
 
       async function flush(final) {
         if (signal?.aborted || !buf.trim()) return;
-        const { parts, ok } = await router.split(lang, buf);
+        const { parts, ok } = await router.split("python", buf);
         // Not parsing yet has two very different causes, and IPython's
         // check_complete is what tells them apart:
         //   incomplete — the model is mid-declaration, wait for more text
@@ -61,7 +61,7 @@ export function createFamiliar({ router, provider, lang = "python", name = "fami
         let runAll = final;
         if (!ok && !final) {
           if (!/\n\s*$/.test(buf)) return;
-          const check = await router.checkComplete(lang, buf);
+          const check = await router.checkComplete("python", buf);
           if (check.complete || check.status !== "invalid") return;
           runAll = true;
         }
@@ -74,7 +74,7 @@ export function createFamiliar({ router, provider, lang = "python", name = "fami
         for (const { text } of ready) {
           if (signal?.aborted) return;
           cell += 1;
-          const result = await (onCell ? onCell(text) : router.run(lang, text, { preemptible: true }));
+          const result = await (onCell ? onCell(text) : router.run("python", text, { preemptible: true }));
           ran.push({ part: text, result });
           onConsoleResult?.(text, result);
           if (result.error) { buf = ""; return; }   // later lines assumed this worked
@@ -101,7 +101,7 @@ export function createFamiliar({ router, provider, lang = "python", name = "fami
       });
 
       try {
-        await provider([{ role: "system", content: buildSystem(lang, name) }, ...history], {
+        await provider([{ role: "system", content: buildSystem(name) }, ...history], {
           signal,
           onText: (t) => { raw += t; stream.feed(t); },
         });
@@ -177,7 +177,6 @@ export function createFamiliar({ router, provider, lang = "python", name = "fami
 
   return {
     send, observeCell,
-    setLang: (l) => { lang = l; },
     clear: () => { history.length = 0; cell = 0; },
     get history() { return history; },   // the roster persists this across restarts
   };

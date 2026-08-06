@@ -1,9 +1,9 @@
-// The application core — everything the bun side does that is NOT shell
-// plumbing: kernel router, familiar roster, turn/observer lifecycles, and the
-// full request-handler map the view speaks. No electrobun, no window, no FFI —
-// the same core runs under the electrobun shell today and a Tauri sidecar
-// tomorrow. `push(name, payload)` is the one seam: how the core streams
-// events (cell output, familiar deltas) back to whatever view transport hosts it.
+// The application core — everything the sidecar does: kernel router, familiar
+// roster, turn/observer lifecycles, and the full request-handler map the view
+// speaks. No shell, no window, no FFI — the same core runs inside the Tauri
+// sidecar (bun process). `push(name, payload)` is the one seam: how the core
+// streams events (cell output, familiar deltas) back to whatever view
+// transport hosts it.
 
 import { createRouter } from "./kernelRouter.js";
 import { createRoster } from "./familiarRoster.js";
@@ -55,18 +55,17 @@ export function createApp({ push }) {
   // Observer: fire-and-forget after a human cell; superseded by the next cell
   // or a real chat send; provider failures dropped silently (an unconfigured
   // provider must not turn every cell into an error note).
-  function observeCell(code, result, lang) {
+  function observeCell(code, result) {
     observerTurn?.abort();
     observerTurn = new AbortController();
     const signal = observerTurn.signal;
     const familiar = roster.active();
-    familiar.setLang(lang);
     familiar.observeCell(code, result, {
       signal,
       onDelta: (t) => push("familiarDelta", { text: t }),
       onConsoleStart: () => push("familiarConsoleStart", {}),
       onConsoleResult: (c, r) => push("familiarConsoleResult", { code: c, result: r }),
-      onCell: (c) => trace("familiar", c, () => router.run(lang, c, { preemptible: true })),
+      onCell: (c) => trace("familiar", c, () => router.run("python", c, { preemptible: true })),
     }).then(() => {
       if (!signal.aborted) { push("familiarDone", {}); roster.saveActive(); }
     }).catch((e) => console.log(`[observe] dropped: ${e.message}`));
@@ -75,20 +74,19 @@ export function createApp({ push }) {
   const handlers = {
     // Typed by the human: front of the queue, preempting a familiar cell
     // mid-flight. onOutput streams lines live; the result is authoritative.
-    runCell: async ({ code, lang }) => {
+    runCell: async ({ code }) => {
       const r = await trace("human", code, () =>
-        router.run(lang, code, { front: true, preempt: true, onOutput: (o) => push("cellOutput", o) }));
-      observeCell(code, r, lang || "python");   // the cell's result never waits on the familiar
+        router.run("python", code, { front: true, preempt: true, onOutput: (o) => push("cellOutput", o) }));
+      observeCell(code, r);   // the cell's result never waits on the familiar
       return r;
     },
-    complete: async ({ code, cursor, lang }) => router.complete(lang, code, cursor),
-    inspect: async ({ name, lang }) => router.inspect(lang, name),
-    languages: () => router.languages(),
+    complete: async ({ code, cursor }) => router.complete("python", code, cursor),
+    inspect: async ({ name }) => router.inspect("python", name),
     // First-boot dependency probe: is python real (not the Windows Store
     // alias), and which packages exist. find_spec, not import — fast, no side
     // effects. The console turns this into install guidance.
     kernelHealth: async () => {
-      const MODS = ["IPython", "jedi", "jupyter_client", "dill", "winpty", "matplotlib", "matplotlib_inline"];
+      const MODS = ["IPython", "jedi", "dill", "winpty", "matplotlib", "matplotlib_inline"];
       const probe = `import json,sys,importlib.util as u;print(json.dumps({"python":sys.version.split()[0],"exe":sys.executable,"mods":{m:bool(u.find_spec(m)) for m in ${JSON.stringify(MODS)}}}))`;
       try {
         const p = Bun.spawn(["python", "-c", probe], { stdout: "pipe", stderr: "pipe" });
@@ -104,12 +102,10 @@ export function createApp({ push }) {
         return { ok: false };
       }
     },
-    restartKernel: ({ lang }) => { router.restart(lang); return { ok: true }; },
-    interruptKernel: ({ lang }) => { router.interrupt(lang); return { ok: true }; },
-    sendToFamiliar: async ({ text, lang }) => {
-      const L = lang || "python";
+    restartKernel: () => { router.restart(); return { ok: true }; },
+    interruptKernel: () => { router.interrupt(); return { ok: true }; },
+    sendToFamiliar: async ({ text }) => {
       const familiar = roster.active();
-      familiar.setLang(L);
       console.log(`[turn] start (${roster.activeName}): ${JSON.stringify(String(text).slice(0, 80))}`);
       const turnT0 = Date.now();
       // One turn at a time; a real question supersedes a mulling observer too.
@@ -122,7 +118,7 @@ export function createApp({ push }) {
         onStatus: (s) => { console.log(`[turn] status: ${s}`); push("familiarStatus", { text: s }); },
         onConsoleStart: () => push("familiarConsoleStart", {}),
         onConsoleResult: (code, result) => push("familiarConsoleResult", { code, result }),
-        onCell: (code) => trace("familiar", code, () => router.run(L, code, { preemptible: true })),
+        onCell: (code) => trace("familiar", code, () => router.run("python", code, { preemptible: true })),
       });
       push("familiarDone", {});
       console.log(`[turn] end after ${Date.now() - turnT0}ms`);

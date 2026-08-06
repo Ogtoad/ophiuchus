@@ -14,7 +14,7 @@ import { mountWorkspace } from "./workspaceBoxes.js";
 let fam: any = null;
 let con: any = null;
 
-const electrobun = createTauriShim({
+const rpcBridge = createTauriShim({
   messages: {
     // The running human cell's output, line by line, while it runs.
     cellOutput: (o: any) => con && con.liveOutput(o),
@@ -43,10 +43,10 @@ const ws = mountWorkspace(document.getElementById("workspace")!, {
   sizes: [936, 624],
 });
 
-fam = initFamiliar(electrobun);
+fam = initFamiliar(rpcBridge);
 // The console owns the only input; the familiar's streaming state feeds its
 // placeholder, so the one field always reports what both halves are doing.
-con = initConsole(electrobun, fam);
+con = initConsole(rpcBridge, fam);
 fam.onStateChange(con.refreshPlaceholder);
 
 // Native window chrome: the strip drags (and dblclick-maximizes) through the
@@ -59,11 +59,11 @@ for (const edge of ["n", "s", "e", "w", "nw", "ne", "sw", "se"]) {
   const el = document.body.appendChild(document.createElement("div"));
   el.className = "wedge " + edge;
   el.addEventListener("pointerdown", (e) => {
-    if (e.button === 0) electrobun.rpc.send.windowResize({ edge, dx: 0, dy: 0 });
+    if (e.button === 0) rpcBridge.rpc.send.windowResize({ edge, dx: 0, dy: 0 });
   });
 }
 
-document.getElementById("closeBtn")!.addEventListener("click", () => electrobun.rpc.send.windowClose({}));
+document.getElementById("closeBtn")!.addEventListener("click", () => rpcBridge.rpc.send.windowClose({}));
 
 // The padding is invisible by design (black on black). Alt — already the
 // panel-drag key — reveals it, and alt+wheel resizes it, persisted per user.
@@ -107,15 +107,15 @@ addEventListener("wheel", (e) => {
 
 // Speaker names for the transcript prompts ($philip> / $familiar>), then the
 // stored conversation — the session picks up where it left off.
-electrobun.rpc.request.identity({})
+rpcBridge.rpc.request.identity({})
   .then((id: { user: string; familiar: string }) => fam.setNames(id))
-  .then(() => electrobun.rpc.request.transcript({}))
+  .then(() => rpcBridge.rpc.request.transcript({}))
   .then((t: { items: any[] }) => { if (t.items && t.items.length) fam.renderTranscript(t.items); })
   .catch(() => {});
 
 // Tell the core we mounted. `inputs` is the load-bearing assertion: the
 // whole app must expose exactly ONE text field (the console's).
-electrobun.rpc.request.viewReady({
+rpcBridge.rpc.request.viewReady({
   boxes: document.querySelectorAll(".wbox").length,
   console: !!document.getElementById("output"),
   familiar: !!document.getElementById("fchat"),

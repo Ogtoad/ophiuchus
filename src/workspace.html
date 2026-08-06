@@ -9,10 +9,9 @@
 <body>
   <!-- The titlebar this window doesn't have. Invisible, and thin enough to sit
        entirely in the workspace/panel padding, so it drags the window without
-       covering anything you can click. Deliberately NOT electrobun's
-       `electrobun-webkit-app-region-drag` class: that hook reaches a
-       startWindowMove the Windows native layer never implements, and the press
-       goes nowhere. workspaceIndex drives it through the portable window API. -->
+       covering anything you can click. workspaceIndex gives it the
+       data-tauri-drag-region attribute, which hands drag-to-move and
+       double-click-maximize to the OS move loop through Tauri's native path. -->
   <div id="titlebar"></div>
   <!-- The one piece of visible chrome: close. HTML, not OS — Windows knows
        nothing about it, so it changes nothing about the frameless window. -->

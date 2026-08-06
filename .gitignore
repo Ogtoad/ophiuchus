@@ -1,6 +1,6 @@
 node_modules/
 build/
-dist/
+dist-view/
 artifacts/
 *.tsbuildinfo
 
@@ -10,6 +10,17 @@ artifacts/
 
 # Tooling scratch
 .remember/
+
+# Local user config (API keys — never commit)
+.ophiuchus.json
+.ophiuchus.sessions/
+.ophiuchus.snapshots/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
 
 # Tauri
 src-tauri/target/

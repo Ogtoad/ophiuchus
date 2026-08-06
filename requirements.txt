@@ -1,5 +1,5 @@
 # Ophiuchus — python-side requirements.
-# The bun/electrobun side needs nothing beyond `bun install` (see package.json).
+# The Tauri/bun sidecar needs nothing beyond `bun install` (see package.json).
 
 # Core: the marker-driver kernel (src/kernelDriver.py). Without these the
 # default python console cannot start.
@@ -20,16 +20,3 @@ matplotlib-inline
 # restored with dill.dump_session/load_session. Optional; without it the
 # snapshot cell fails with ModuleNotFoundError (fix: pip install dill).
 dill
-
-# Multi-language: the jupyter broker (src/kernelBroker.py) and kernelspec
-# discovery (src/kernelRouter.js). Optional; without them only the marker
-# driver's python is offered. Any installed kernelspec then becomes a §lang
-# (e.g. `deno jupyter --install`, julia's IJulia, gophernotes).
-jupyter_client
-ipykernel
-
-# C (§lang c) is not a python package: it needs a TinyCC binary — set OPHI_TCC,
-# put tcc on PATH, or install to %LOCALAPPDATA%/Programs/tcc/tcc/tcc.exe
-# (win64 zip: https://download.savannah.gnu.org/releases/tinycc/).
-# src/kernelC.py runs each cell via `tcc -run`; the language is only offered
-# when a tcc binary is actually found.

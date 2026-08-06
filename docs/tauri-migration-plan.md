@@ -1,5 +1,9 @@
 # Tauri migration — sidecar-first plan
 
+> **Status: COMPLETE (2026-08-05).** The electrobun shell, `windowShim.c`,
+> `embedIcon.ts`, and `electrobun.config.ts` have been deleted. Tauri is the
+> sole shell. The text below is the original plan, kept as a record.
+
 Goal: replace electrobun as the shell (window, IPC bridge, packaging) while the
 JS backend and the view survive bit-for-bit. Rust stays a dumb pipe; no logic
 is rewritten. Full-Rust backend is explicitly out of scope — revisit only if

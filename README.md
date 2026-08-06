@@ -10,17 +10,18 @@ one namespace, shared both ways: your variables are its variables, its
 declarations are callable by you, and every cell from either side lands in the
 same transcript in execution order.
 
-Built on [electrobun](https://electrobun.dev) (bun + system webview), ported
-lean from logos, its larger predecessor.
+Built on [Tauri](https://tauri.app) (Rust shell + system webview) with a bun
+sidecar for the kernel and familiar, ported lean from logos, its larger
+predecessor.
 
 ## The console
 
 - **One input for everything.** `ctrl+↵` runs the cell, `alt/altgr+↵` sends
   the same text to the familiar, `↵` is a newline. `tab` completes against the
   live kernel, `?name` inspects, `ctrl+c` interrupts.
-- **`§` is the interface.** A bare `§` lists the commands: `§lang`, `§set`,
+- **`§` is the interface.** A bare `§` lists the commands: `§set`,
   `§provider`, `§model`, `§familiar`, `§restart`, `§interrupt`, `§clear`.
-  Listing forms are bare (`§lang`), actions take arguments (`§lang c`).
+  Listing forms are bare (`§provider`), actions take arguments (`§provider openai`).
 - **Output is live.** stdout streams while a cell runs, stderr streams as it
   is written, and `\r` progress updates overwrite in place instead of
   stacking. Shell escapes (`!pip install …`, `!curl …`) run in a real pty, so
@@ -32,18 +33,11 @@ lean from logos, its larger predecessor.
   restored on boot with their original numbering. Kernel *state* does not
   persist, and the restored transcript says so.
 
-## Languages
+## The console language
 
-`§lang` lists what is available, `§lang <name>` switches:
-
-- **python** — the built-in marker driver (IPython, no jupyter needed).
-  Fast path, statement-level streaming for the familiar, magics, `!` escapes.
-- **any installed jupyter kernelspec** — discovered automatically through
-  `jupyter_client`. Install a kernelspec (deno, julia, gophernotes, …) and it
-  appears; zero per-language code.
-- **c** — each cell is a program run by TinyCC (`tcc -run`), milliseconds
-  per cell. Cells without `main` are wrapped so `printf("%d", 6*7);` just
-  works. Offered only when a `tcc` binary is found.
+**Python** — the built-in marker driver (IPython, no jupyter needed). Fast
+path, statement-level streaming for the familiar, magics, `!` escapes. One
+kernel, one namespace, shared between human and familiar.
 
 ## Familiars
 
@@ -71,10 +65,10 @@ there are plain text — prefer provider-side auth where it matters.
 ## The window
 
 Frameless — no titlebar, no chrome except a close `×` — but native: snap,
-Win+Arrow and the system shadow all work. On Windows this is done by a tiny
-wndproc shim compiled at startup (bun's TinyCC) that erases the frame's paint
-area while keeping its styles, and routes the drag strip into the OS move
-loop.
+Win+Arrow and the system shadow all work. Tauri's `data-tauri-drag-region`
+attribute on the invisible top strip hands drag-to-move and double-click-
+maximize to the OS move loop; edge grips fire one-shot `startResizeDragging`
+calls. No FFI, no compiled C shim — the webview's own window API does it.
 
 - Drag the invisible top strip to move; double-press it to maximize.
 - Edges and corners resize.
@@ -86,21 +80,20 @@ loop.
 ```
 bun install
 pip install -r requirements.txt
-bun run start
+bun run dev
 ```
 
 `requirements.txt` documents what is optional: the console needs only
 `ipython`/`jedi`; `pywinpty` upgrades shell escapes to a real pty on Windows;
-`jupyter_client` + kernelspecs unlock other languages; C needs a TinyCC
-binary (`OPHI_TCC`, PATH, or `%LOCALAPPDATA%/Programs/tcc/tcc/tcc.exe`).
+`matplotlib-inline` for inline plots; `dill` for §save/§load snapshots.
 
-`OPHI_SMOKE=1 bun run start` runs a kernel + familiar round trip end-to-end
+`OPHI_SMOKE=1 bun run smoke` runs a kernel + familiar round trip end-to-end
 and logs the result. Most modules carry a runnable self-check:
 `bun src/<module>.js`.
 
 ## Status
 
-Early, and Windows-first: the window shim and pty paths are Windows
-implementations today (with graceful fallbacks), while the kernel, console,
-familiar and language layers are platform-neutral. Linux/mac window
-management falls back to view-side drag and resize.
+Early, and Windows-first: the pty path is a Windows implementation today
+(with graceful fallback), while the kernel, console, familiar and language
+layers are platform-neutral. Tauri provides native frameless window
+management across Windows, macOS, and Linux.

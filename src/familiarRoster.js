@@ -17,7 +17,7 @@ import { parseTagStream, tagText } from "./familiarTags.js";
 
 const EDITABLE = ["provider", "model", "baseUrl", "apiKey"];
 
-export function createRoster({ router, lang = "python", env = process.env, file = (process.env.OPHI_CONFIG || join(homedir(), ".ophiuchus.json")) } = {}) {
+export function createRoster({ router, env = process.env, file = (process.env.OPHI_CONFIG || join(homedir(), ".ophiuchus.json")) } = {}) {
   let cfg = null;
   let firstRun = false;   // true only on the boot that seeded the config — the setup guide's cue
   try { cfg = JSON.parse(readFileSync(file, "utf8")); } catch { /* first run */ }
@@ -79,7 +79,7 @@ export function createRoster({ router, lang = "python", env = process.env, file 
         }
         return cache.fn(messages, opts);
       };
-      instances.set(name, createFamiliar({ router, provider, lang, name, history: loadSession(name) }));
+      instances.set(name, createFamiliar({ router, provider, name, history: loadSession(name) }));
     }
     return instances.get(name);
   }

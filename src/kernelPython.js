@@ -12,10 +12,10 @@ import driverSource from "./kernelDriver.py" with { type: "text" };
 
 const LOADER = "import base64,zlib,sys;_c=zlib.decompress(base64.b64decode(sys.argv[1])).decode();del sys.argv[1];exec(_c)";
 
-// [python, -u, -c, loader, <deflated source>, ...args] — the uniform way every
-// embedded python driver is launched (kernelC and the jupyter broker reuse it).
-export function pyLoaderCmd(python, source, ...args) {
-  return [python, "-u", "-c", LOADER, deflateSync(Buffer.from(source, "utf8")).toString("base64"), ...args];
+// [python, -u, -c, loader, <deflated source>] — the uniform way the embedded
+// python driver is launched.
+export function pyLoaderCmd(python, source) {
+  return [python, "-u", "-c", LOADER, deflateSync(Buffer.from(source, "utf8")).toString("base64")];
 }
 
 export function kernelPython(python = "python", outputByteLimit = 2_000_000) {

@@ -39,8 +39,8 @@ function mdRender(text) {
   return frag;
 }
 
-export function initFamiliar(electrobun) {
-  const req = electrobun.rpc.request;
+export function initFamiliar(rpcBridge) {
+  const req = rpcBridge.rpc.request;
   const chat = document.getElementById("fchat");
 
   let streaming = false;
@@ -178,14 +178,14 @@ export function initFamiliar(electrobun) {
     try { req.clearFamiliar && req.clearFamiliar({}); } catch {}
   }
 
-  async function send(text, lang) {
+  async function send(text) {
     const t = (text || "").trim();
     if (!t) return;
     addUserMsg(t);
     setStreaming(true);
     showWorking();
     try {
-      await req.sendToFamiliar({ text: t, lang });
+      await req.sendToFamiliar({ text: t });
     } catch (e) {
       addError("familiar error — " + ((e && e.message) || e));
       endReply();

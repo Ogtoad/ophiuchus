@@ -1,24 +1,20 @@
 {
   "name": "ophiuchus",
-  "version": "0.1.0-beta.1",
+  "version": "0.2.0-beta.1",
   "description": "The core of logos, lean: one kernel console driven by human and servitor",
   "scripts": {
-    "start": "electrobun dev",
-    "dev": "electrobun dev --watch",
-    "build": "electrobun build",
-    "spike": "tauri dev"
+    "dev": "bun run scripts/buildView.ts && tauri dev",
+    "build:view": "bun run scripts/buildView.ts",
+    "build:sidecar": "bun build --compile src/sidecarMain.ts --outfile src-tauri/binaries/ophi-core",
+    "build": "bun run build:view && bun run build:sidecar && tauri build",
+    "smoke": "OPHI_SMOKE=1 bun src/sidecarMain.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-shell": "^2.3.5",
-    "electrobun": "^1.18.1"
+    "@tauri-apps/plugin-shell": "^2.3.5"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
-    "@types/bun": "latest",
-    "rcedit": "^5.0.2"
-  },
-  "trustedDependencies": [
-    "electrobun"
-  ]
+    "@types/bun": "latest"
+  }
 }

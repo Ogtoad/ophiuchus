@@ -17,6 +17,6 @@
 		"noUnusedParameters": true,
 		"noPropertyAccessFromIndexSignature": true
 	},
-	"include": ["src/**/*"],
-	"exclude": ["node_modules", "dist", "build", "../../package/dist"]
+	"include": ["src/**/*", "scripts/**/*"],
+	"exclude": ["node_modules", "dist-view", "build", "src-tauri/target"]
 }

@@ -1,8 +1,8 @@
-// The electrobun-view lookalike for the Tauri shell. Exposes the exact
-// surface the panels already speak — rpc.request.<method>(args) and
-// rpc.send.<windowOp>() — backed by the ophi-core sidecar over ONE ordered
-// stdio stream (responses and pushes together, so streamed output can never
-// be overtaken by its cell's final result). Window ops become native calls.
+// The view-side RPC bridge for the Tauri shell. Exposes the surface the panels
+// already speak — rpc.request.<method>(args) and rpc.send.<windowOp>() —
+// backed by the ophi-core sidecar over ONE ordered stdio stream (responses and
+// pushes together, so streamed output can never be overtaken by its cell's
+// final result). Window ops become native Tauri calls.
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { Command } from "@tauri-apps/plugin-shell";

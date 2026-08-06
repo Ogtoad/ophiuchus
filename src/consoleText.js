@@ -4,8 +4,6 @@
 
 const KEYWORDS = {
   python: new Set(["def", "class", "import", "from", "return", "if", "elif", "else", "for", "while", "try", "except", "with", "as", "lambda", "async", "await", "True", "False", "None"]),
-  deno: new Set(["const", "let", "var", "function", "return", "if", "else", "for", "while", "try", "catch", "class", "import", "from", "export", "new", "await", "async", "true", "false", "null", "undefined"]),
-  c: new Set(["int", "char", "long", "short", "float", "double", "void", "unsigned", "signed", "struct", "union", "enum", "typedef", "const", "static", "return", "if", "else", "for", "while", "do", "switch", "case", "break", "continue", "sizeof", "include", "define"]),
 };
 KEYWORDS.ipython = KEYWORDS.python3 = KEYWORDS.python;
 
@@ -13,7 +11,7 @@ KEYWORDS.ipython = KEYWORDS.python3 = KEYWORDS.python;
 const TOKEN_RE = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|\b\d+(?:\.\d+)?\b|\b[A-Za-z_][A-Za-z0-9_]*\b)/g;
 
 function tokenizeLine(line, lang) {
-  const marker = lang === "deno" || lang === "c" ? "//" : "#";
+  const marker = "#";
   const at = line.indexOf(marker);
   const body = at >= 0 ? line.slice(0, at) : line;
   const comment = at >= 0 ? line.slice(at) : "";

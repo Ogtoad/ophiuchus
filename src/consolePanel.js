@@ -14,8 +14,8 @@
 import { createKeybindings } from "./workspaceKeys.js";
 import { highlight } from "./consoleText.js";
 
-export function initConsole(electrobun, familiar) {
-  const req = electrobun.rpc.request;
+export function initConsole(rpcBridge, familiar) {
+  const req = rpcBridge.rpc.request;
   const $ = (id) => document.getElementById(id);
   const output = $("output"), input = $("input"), overlay = $("overlay");
   const inputRow = $("inputRow"), ps1 = $("ps1");
@@ -24,7 +24,7 @@ export function initConsole(electrobun, familiar) {
   const consoleHint = keys.format("sendToConsole");   // ctrl+↵
   const chatHint = keys.format("sendToChat");         // alt/altgr+↵
 
-  let lang = "python";
+  const lang = "python";
   let executing = false;
   let kernelUp = true;
   const history = [];          // submitted lines, for ArrowUp/Down recall
@@ -174,7 +174,7 @@ export function initConsole(electrobun, familiar) {
   // The empty prompt is empty — §help is the manual. Only a dead kernel still
   // speaks, because silence there reads as the app being broken.
   function placeholder() {
-    return kernelUp ? "" : `${lang} not running`;
+    return kernelUp ? "" : "python not running";
   }
 
   // The live prompt is the session's next cell number.
@@ -245,7 +245,7 @@ export function initConsole(electrobun, familiar) {
   async function inspectName(name) {
     const entry = addEntry("?" + name, "human");
     try {
-      const r = await req.inspect({ name, lang });
+      const r = await req.inspect({ name });
       if (!r || !r.found) { addOutput(entry, "no object named " + name + " in this session", "stderr"); return; }
       const head = [r.type && ("type: " + r.type), r.signature].filter(Boolean).join("\n");
       if (head) addOutput(entry, head, "");
@@ -298,7 +298,7 @@ export function initConsole(electrobun, familiar) {
     cursor.textContent = "|";
     place(cursor);
     try {
-      const r = await req.runCell({ code, lang });
+      const r = await req.runCell({ code });
       // Everything already streamed in; only an error that never crossed the
       // stream (a restart resolving the queue, a backend without the tap)
       // still needs attaching, or it would vanish.
@@ -324,26 +324,25 @@ export function initConsole(electrobun, familiar) {
     if (!text) return;
     history.push(text); historyIndex = -1;
     input.value = ""; autogrow(); paintOverlay();
-    // The lang rides along: the familiar writes for the kernel the console is on.
-    if (familiar) familiar.sendFromConsole(text, lang);
+    // The familiar writes for the kernel the console is on.
+    if (familiar) familiar.sendFromConsole(text);
     else addNote("(familiar not mounted)");
   }
 
   // § lines are meta-commands, handled here — never sent to the kernel.
-  // Bare § lists the commands; bare §lang / §set / §familiar list their
+  // Bare § lists the commands; bare §set / §familiar list their
   // subjects. This on-demand text is the manual the idle UI no longer carries.
   async function meta(cmd) {
     const [name, ...rest] = cmd.slice(1).trim().split(/\s+/).filter(Boolean);
     try {
       if (!name) {
         addNote([
-          "§lang [name] — list kernels | switch",
           "§provider [id] — list providers | set the active familiar's",
           "§model [name] — list/show models | set the active familiar's",
           "§set [key value] — list settings | change one",
           "§familiar [name | new <name> | <name> <key> <value> | clear]",
           "§clear [chat|all] — console | chat | both + kernel restart",
-          "§save / §load [name] — snapshot / restore kernel + conversation (python, needs dill)",
+          "§save / §load [name] — snapshot / restore kernel + conversation (needs dill)",
           "§setup — provider/model setup guide",
           "§restart · §interrupt",
           `?name inspects · ${consoleHint} run · ${chatHint} chat`,
@@ -358,7 +357,7 @@ export function initConsole(electrobun, familiar) {
         else {
           if (scope !== "chat") { output.replaceChildren(inputRow); cellNo = 0; log.length = 0; saveSoon(); updatePrompt(); }
           if (scope !== "console") { familiar && familiar.clearTranscript(); addNote("— familiar transcript cleared —"); }
-          if (scope === "all") { req.restartKernel({ lang }); addNote("— " + lang + " kernel restarted —"); }
+          if (scope === "all") { req.restartKernel({}); addNote("— kernel restarted —"); }
         }
       }
       else if (name === "setup") { await setupGuide(); }
@@ -373,8 +372,6 @@ export function initConsole(electrobun, familiar) {
           addNote(s.names.length
             ? "snapshots: " + s.names.join("  ") + "\n§save <name> stores · §load <name> restores"
             : "no snapshots yet — §save <name> stores kernel state + familiar conversation");
-        } else if (lang !== "python") {
-          addNote("§save/§load need the python kernel — §lang python first");
         } else if (name === "save") {
           const r = await req.snapshotSave({ name: snap });
           if (r.error) addNote(r.error);
@@ -395,17 +392,13 @@ export function initConsole(electrobun, familiar) {
         }
       }
       else if (name === "restart") {
-        req.restartKernel({ lang });
-        addNote("— " + lang + " kernel restarted —");
+        req.restartKernel({});
+        addNote("— kernel restarted —");
         // The retry path after installing something: re-probe, lift the dead
         // state if the world is whole now.
-        if (lang === "python" && await checkKernelDeps(false)) setKernelState("ready");
+        if (await checkKernelDeps(false)) setKernelState("ready");
       }
-      else if (name === "interrupt") { req.interruptKernel({ lang }); addNote("— interrupt sent —"); }
-      else if (name === "lang") {
-        if (!rest.length) addNote("languages: " + languages.map((l) => (l === lang ? "▸" + l : l)).join("  "));
-        else switchLang(rest[0]);
-      }
+      else if (name === "interrupt") { req.interruptKernel({}); addNote("— interrupt sent —"); }
       else if (name === "provider") {
         const p = await req.providers({});
         if (!rest.length) {
@@ -520,7 +513,6 @@ export function initConsole(electrobun, familiar) {
   const OPTIONAL = [
     ["dill", "dill", "§save/§load snapshots"],
     ["winpty", "pywinpty", "live ! command output"],
-    ["jupyter_client", "jupyter_client ipykernel", "more languages via §lang"],
     ["matplotlib_inline", "matplotlib-inline", "inline plots"],
   ];
   async function checkKernelDeps(verbose) {
@@ -552,21 +544,11 @@ export function initConsole(electrobun, familiar) {
     } catch { return true; /* probe is best-effort — never block a working console */ }
   }
 
-  let languages = ["python"];
-  function switchLang(name) {
-    if (!name || !languages.includes(name)) { addNote("no such language: " + name); return; }
-    lang = name;
-    updatePrompt();   // In [n] is the prompt for every kernel, not >>>
-    if (familiar && familiar.setLang) familiar.setLang(lang);
-    setKernelState("ready");
-    addNote("— language → " + lang + " —");
-  }
-
   // ── Completion (kernel-backed, inline) ──────────────────────────────
   async function complete() {
     const code = input.value, cursor = input.selectionStart;
     try {
-      const r = await req.complete({ code, cursor, lang });
+      const r = await req.complete({ code, cursor });
       const matches = (r.matches || []).map((m) => m.text).filter(Boolean);
       if (!matches.length) return;
       let prefix = matches[0];
@@ -595,7 +577,7 @@ export function initConsole(electrobun, familiar) {
   async function cancelInFlight() {
     const busy = executing || (familiar && familiar.isStreaming && familiar.isStreaming());
     if (!busy) return false;
-    try { await req.interruptKernel({ lang }); } catch {}
+    try { await req.interruptKernel({}); } catch {}
     try { await req.cancelFamiliar({}); } catch {}
     if (familiar && familiar.endReply) familiar.endReply();
     addNote("^C");
@@ -674,7 +656,7 @@ export function initConsole(electrobun, familiar) {
   }
 
   // The topbar's buttons are gone; § commands were always the real interface
-  // (§restart, §interrupt, §lang, §clear, §help), so nothing was lost with it.
+  // (§restart, §interrupt, §clear, §help), so nothing was lost with it.
 
   // WebView2 doesn't reliably honour autofocus; re-focus on clicks in this pane
   // that aren't text selections. Scoped so clicking the familiar doesn't steal.
@@ -685,7 +667,6 @@ export function initConsole(electrobun, familiar) {
   restoreSession();
 
   (async () => {
-    try { languages = (await req.languages()) || ["python"]; } catch { /* keep the default */ }
     setKernelState("ready");
     updatePrompt();
     paintOverlay();
